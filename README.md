@@ -1,5 +1,4 @@
-# CSCI421---Group-2
-
+# NexaSQL
 Authors: Alen Van, Shandon Mith, Carlos Hargrove, Chen Lin, Erika Jeffers
 
 Compilation:
