@@ -33,7 +33,7 @@ public class UserInterface {
         System.out.println("\nPlease enter commands, enter <quit> to shutdown the db\n");
         while (true) {
             StringBuilder userInpBuilder = new StringBuilder();
-            System.out.print("CASE-C QL> ");
+            System.out.print("nexasql> ");
 
             while (true) {
                 String line = scanner.nextLine().trim();

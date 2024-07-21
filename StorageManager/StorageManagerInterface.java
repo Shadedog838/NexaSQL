@@ -2,7 +2,6 @@ package StorageManager;
 
 import java.util.List;
 
-import BPlusTree.BPlusNode;
 import StorageManager.Objects.Page;
 import StorageManager.Objects.Record;
 
@@ -89,7 +88,6 @@ public interface StorageManagerInterface {
     public void updateRecord(int tableNumber, Record newRecord, Object primaryKey) throws Exception;
 
     public Page getPage(int tableNumber, int pageNumber) throws Exception;
-    public BPlusNode getIndexPage(int tableNumber, int pageNumber) throws Exception;
 
     /**
      * Writes all pages in the buffer to disk
