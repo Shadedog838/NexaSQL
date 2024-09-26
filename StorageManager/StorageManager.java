@@ -1,9 +1,7 @@
 package StorageManager;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
-import java.lang.management.MemoryType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -11,11 +9,13 @@ import java.util.PriorityQueue;
 import java.util.Random;
 
 import Parser.Insert;
-import Parser.Type;
 import QueryExecutor.InsertQueryExcutor;
 import StorageManager.Objects.AttributeSchema;
 import StorageManager.Objects.BufferPage;
 import StorageManager.Objects.Catalog;
+import StorageManager.Objects.InternalNode;
+import StorageManager.Objects.LeafNode;
+import StorageManager.Objects.Node;
 import StorageManager.Objects.MessagePrinter;
 import StorageManager.Objects.Page;
 import StorageManager.Objects.Record;
@@ -148,7 +148,49 @@ public class StorageManager implements StorageManagerInterface {
     private String getIndexingPath(int tableNumber) {
         String dbLoc = Catalog.getCatalog().getDbLocation();
         return dbLoc + "/indexing/" + Integer.toString(tableNumber);
+    }
 
+    /**
+     * This method retrieves the page number that contains the specified primary key.
+     * It first looks through the provided list of pages, and if not found, it falls back
+     * to checking all pages in the table's schema.
+     *
+     * @param tableNumber      The number representing the table to search.
+     * @param primaryKey       The primary key to search for within the pages.
+     * @param pagesToLookThrough The list of specific pages to search through, or null if all pages should be checked.
+     * @return                 The page number that contains the primary key or -1 if not found.
+     * @throws Exception       If an error occurs during the search process.
+     */
+    public int getPrimaryKeyPageNumber(int tableNumber, Object primaryKey, List<Page> pagesToLookThrough) throws Exception {
+        Catalog catalog = Catalog.getCatalog();
+        TableSchema schema = catalog.getSchema(tableNumber);
+        int primaryKeyIndex = schema.getPrimaryIndex();
+        List<Integer> pageOrder = schema.getPageOrder();
+        if (pagesToLookThrough != null) {
+            for (Page page : pagesToLookThrough) {
+                Record lastRecord = page.getRecords().get(page.getRecords().size() - 1);
+                int comparison = lastRecord.compareTo(primaryKey, primaryKeyIndex);
+
+                if (comparison == 0 || comparison > 0) {
+                    // found the record, return it
+                    return page.getPageNumber();
+                }
+            }
+        } else {
+            for (int pageNumber : pageOrder) {
+                Page page = this.getPage(tableNumber, pageNumber);
+
+                Record lastRecord = page.getRecords().get(page.getRecords().size() - 1);
+                int comparison = lastRecord.compareTo(primaryKey, primaryKeyIndex);
+
+                if (comparison == 0 || comparison > 0) {
+                    // found the record, return it
+                    return pageNumber;
+                }
+            }
+        }
+
+        return -1;
     }
 
     public Record getRecord(int tableNumber, Object primaryKey) throws Exception {
@@ -525,6 +567,25 @@ public class StorageManager implements StorageManagerInterface {
         return (Page) getLastPageInBuffer(this.buffer);
     }
 
+    @SuppressWarnings("rawtypes")
+    public Node getNodePage(int tableNumber, int pageNumber) throws Exception {
+        for (int i = this.buffer.size()-1; i >= 0; i--) {
+            Object[] bufferArray = this.buffer.toArray();
+            BufferPage page = (BufferPage) bufferArray[i];
+            if (page instanceof Node && page.getTableNumber() == tableNumber && page.getPageNumber() == pageNumber) {
+                page.setPriority();
+                return (Node) page;
+            }
+        }
+        readNodePageHardware(tableNumber, pageNumber);
+        return (Node) getLastPageInBuffer(this.buffer);
+    }
+
+
+    private void readNodePageHardware(int tableNumber, int pageNumber) throws Exception {
+
+    }
+
     private void readPageHardware(int tableNumber, int pageNumber) throws Exception {
         Catalog catalog = Catalog.getCatalog();
         TableSchema tableSchema = catalog.getSchema(tableNumber);
@@ -536,6 +597,7 @@ public class StorageManager implements StorageManagerInterface {
         tableAccessFile.seek(Integer.BYTES + (catalog.getPageSize() * pageIndex)); // start after numPages
         int numRecords = tableAccessFile.readInt();
         int pageNum = tableAccessFile.readInt();
+        if (pageNum != pageNumber) MessagePrinter.printMessage(MessageType.ERROR, "Page Number read does not match requested");
         Page page = new Page(numRecords, tableNumber, pageNum);
         page.readFromHardware(tableAccessFile, tableSchema);
         this.addPageToBuffer(page);
