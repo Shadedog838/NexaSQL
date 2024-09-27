@@ -2,6 +2,7 @@ package StorageManager.Objects;
 
 import StorageManager.StorageManager;
 import StorageManager.TableSchema;
+import StorageManager.Objects.MessagePrinter.MessageType;
 
 public class BPlusTree {
   private Node root;
@@ -9,11 +10,11 @@ public class BPlusTree {
   private TableSchema tableSchema;
   private int tableNumber;
 
-  public BPlusTree(TableSchema tableSchema, LeafNode root) throws Exception {
+  public BPlusTree(TableSchema tableSchema) throws Exception {
     this.tableSchema = tableSchema;
     this.tableNumber = tableSchema.getTableNumber();
     this.N = tableSchema.computeN(Catalog.getCatalog());
-    this.root = tableSchema.getRootNumber() != -1 ? StorageManager.getStorageManager().getNodePage(tableNumber, tableSchema.getRootNumber()) : root;
+    this.root = tableSchema.getRootNumber() != -1 ? StorageManager.getStorageManager().getNodePage(tableNumber, tableSchema.getRootNumber()) : new LeafNode(tableNumber, 1, -1);;
   }
 
 
@@ -23,6 +24,27 @@ public class BPlusTree {
 
   public int getMinKeysPerNode() {
     return (N - 1) / 2;
+  }
+
+  @SuppressWarnings({ "rawtypes", "unchecked" })
+  public Bucket canInsert(Object primaryKey) throws Exception {
+    Node currentNode = root;
+
+    while (!currentNode.isLeaf()) {
+      InternalNode internalNode = (InternalNode) currentNode;
+      int pos = internalNode.findInsertPosition(primaryKey);
+      int childPageNumber = internalNode.getChildrenPointers().get(pos);
+      currentNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
+    }
+
+    LeafNode leafNode = (LeafNode) currentNode;
+    int pos = leafNode.findInsertPosition(primaryKey);
+
+    if (pos < leafNode.getNumKeys() && ((Comparable) leafNode.getPrimaryKeys().get(pos)).compareTo(primaryKey) == 0) {
+       MessagePrinter.printMessage(MessageType.ERROR, String.format("primaryKey: (%d) already exist", primaryKey.toString()));
+    }
+
+    return pos - 1 < 0 ? leafNode.getBuckets().get(0) : leafNode.getBuckets().get(pos - 1);
   }
 
   @SuppressWarnings({ "rawtypes", "unchecked" })

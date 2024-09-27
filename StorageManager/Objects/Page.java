@@ -93,10 +93,6 @@ public class Page extends BufferPage {
      * @throws Exception
      */
     public boolean addNewRecord(Record record, int index) throws Exception {
-        if ((Integer)record.getValues().get(0) == 150 ||
-        (Integer)record.getValues().get(0) == 156) {
-            System.out.println("notify");
-        }
         Catalog catalog = Catalog.getCatalog();
         // check if record can fit in this page.
         if ((catalog.getPageSize() - this.computeSize()) < record.computeSize()) {

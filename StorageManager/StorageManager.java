@@ -11,6 +11,8 @@ import java.util.Random;
 import Parser.Insert;
 import QueryExecutor.InsertQueryExcutor;
 import StorageManager.Objects.AttributeSchema;
+import StorageManager.Objects.BPlusTree;
+import StorageManager.Objects.Bucket;
 import StorageManager.Objects.BufferPage;
 import StorageManager.Objects.Catalog;
 import StorageManager.Objects.InternalNode;
@@ -291,29 +293,50 @@ public class StorageManager implements StorageManagerInterface {
             tableSchema.incrementNumRecords();
             // then add the page to the buffer
             this.addPageToBuffer(_new);
+
+            if (catalog.isIndexingOn()) {
+                if (!indexFile.exists()) {
+                    indexFile.createNewFile();
+
+                    BPlusTree bPlusTree = new BPlusTree(tableSchema);
+                    bPlusTree.insert(bPlusTree, new Bucket(1, 0));
+                }
+            }
         } else {
-            for (Integer pageNumber : tableSchema.getPageOrder()) {
-                Page page = this.getPage(tableNumber, pageNumber);
-                if (page.getNumRecords() == 0) {
-                    if (!page.addNewRecord(record)) {
-                        // page was full
-                        this.pageSplit(page, record, tableSchema, primaryKeyIndex);
+            if (catalog.isIndexingOn()) {
+                Object primaryKey = record.getValues().get(primaryKeyIndex);
+                BPlusTree bPlusTree = new BPlusTree(tableSchema);
+                Bucket bucket = bPlusTree.canInsert(primaryKey);
+                Page page = this.getPage(tableNumber, bucket.getPageNumber());
+                if (!page.addNewRecord(record, bucket.getIndex() + 1)) {
+                    this.pageSplit(page, record, tableSchema, primaryKeyIndex);
+                }
+                tableSchema.incrementNumRecords();
+            } else {
+                for (Integer pageNumber : tableSchema.getPageOrder()) {
+                    Page page = this.getPage(tableNumber, pageNumber);
+                    if (page.getNumRecords() == 0) {
+                        if (!page.addNewRecord(record)) {
+                            // page was full
+                            this.pageSplit(page, record, tableSchema, primaryKeyIndex);
+                        }
+                        tableSchema.incrementNumRecords();
+                        break;
                     }
-                    tableSchema.incrementNumRecords();
-                    break;
+
+                    Record lastRecordInPage = page.getRecords().get(page.getRecords().size() - 1);
+                    if ((record.compareTo(lastRecordInPage, primaryKeyIndex) < 0) ||
+                        (pageNumber == tableSchema.getPageOrder().get(tableSchema.getPageOrder().size() - 1))) {
+                        // record is less than lastRecordPage
+                        if (!page.addNewRecord(record)) {
+                            // page was full
+                            this.pageSplit(page, record, tableSchema, primaryKeyIndex);
+                        }
+                        tableSchema.incrementNumRecords();
+                        break;
+                    }
                 }
 
-                Record lastRecordInPage = page.getRecords().get(page.getRecords().size() - 1);
-                if ((record.compareTo(lastRecordInPage, primaryKeyIndex) < 0) ||
-                    (pageNumber == tableSchema.getPageOrder().get(tableSchema.getPageOrder().size() - 1))) {
-                    // record is less than lastRecordPage
-                    if (!page.addNewRecord(record)) {
-                        // page was full
-                        this.pageSplit(page, record, tableSchema, primaryKeyIndex);
-                    }
-                    tableSchema.incrementNumRecords();
-                    break;
-                }
             }
         }
     }
@@ -411,10 +434,21 @@ public class StorageManager implements StorageManagerInterface {
         Page deletePage = null;
         Pair<Page, Record> deletedPair = null;
 
-
-        deletedPair = this.deleteHelper(schema, primaryKey);
-
-
+        if (catalog.isIndexingOn()) {
+            BPlusTree bPlusTree = new BPlusTree(schema);
+            Bucket bucket = bPlusTree.search(primaryKey);
+            if (bucket == null) {
+                MessagePrinter.printMessage(MessageType.ERROR,
+                    String.format("No record of primary key: (%d), was found.",
+                            primaryKey));
+            }
+            Page foundPage = this.getPage(tableNumber, bucket.getPageNumber());
+            List<Record> recordsInFound = foundPage.getRecords();
+            Record removed = recordsInFound.remove(bucket.getIndex());
+            deletedPair = new Pair<Page, Record>(foundPage, removed);
+        } else {
+            deletedPair = this.deleteHelper(schema, primaryKey);
+        }
         deletePage = deletedPair.first;
         deletedRecord = deletedPair.second;
 
