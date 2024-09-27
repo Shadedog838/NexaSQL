@@ -231,7 +231,7 @@ public class TableSchema implements SchemaInterface {
   public int computeSizeOfNode(Catalog catalog) throws Exception {
     int N = computeN(catalog);
     String dataType = this.attributes.get(this.getPrimaryIndex()).getDataType();
-    int size = 1 + (Integer.BYTES * 4) + ((N-1) * getSizeofDataType(dataType)) + (N * (Integer.BYTES * 2));
+    int size = 1 + (Integer.BYTES * 5) + ((N-1) * getSizeofDataType(dataType)) + (N * (Integer.BYTES * 2));
     return size;
   }
 

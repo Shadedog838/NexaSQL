@@ -567,9 +567,9 @@ public class StorageManager implements StorageManagerInterface {
         return (Page) getLastPageInBuffer(this.buffer);
     }
 
-    @SuppressWarnings("rawtypes")
     public Node getNodePage(int tableNumber, int pageNumber) throws Exception {
-        for (int i = this.buffer.size()-1; i >= 0; i--) {
+        // Check if the node is in buffer
+        for (int i = this.buffer.size() - 1; i >= 0; i--) {
             Object[] bufferArray = this.buffer.toArray();
             BufferPage page = (BufferPage) bufferArray[i];
             if (page instanceof Node && page.getTableNumber() == tableNumber && page.getPageNumber() == pageNumber) {
@@ -577,13 +577,38 @@ public class StorageManager implements StorageManagerInterface {
                 return (Node) page;
             }
         }
-        readNodePageHardware(tableNumber, pageNumber);
-        return (Node) getLastPageInBuffer(this.buffer);
+
+        // If not in buffer, read the node from hardware
+        readNodePageHardware(tableNumber, pageNumber);  // This method is already implemented
+        return (Node) getLastPageInBuffer(this.buffer);  // Assume this retrieves the last added page from the buffer
     }
 
 
     private void readNodePageHardware(int tableNumber, int pageNumber) throws Exception {
+        Catalog catalog = Catalog.getCatalog();
+        int nodeSize = catalog.getSchema(tableNumber).computeSizeOfNode(catalog);
+        TableSchema tableSchema = catalog.getSchema(tableNumber);
+        String filePath = this.getIndexingPath(tableNumber);
+        File indexFile = new File(filePath);
+        RandomAccessFile tableAccessFile = new RandomAccessFile(indexFile, "r");
+        int pageIndex = pageNumber - 1;
 
+        tableAccessFile.seek(Integer.BYTES + (nodeSize * pageIndex));
+        int pageNum = tableAccessFile.readInt();
+        boolean isLeaf = tableAccessFile.readBoolean();
+        int parentPageNumber = tableAccessFile.readInt();
+        if (pageNum != pageNumber) MessagePrinter.printMessage(MessageType.ERROR, "Page Number read does not match requested");
+
+        if (isLeaf) {
+            LeafNode leafNode = new LeafNode(tableNumber, pageNumber, parentPageNumber);
+            leafNode.readFromHardware(tableAccessFile, tableSchema);
+            this.addPageToBuffer(leafNode);
+        } else {
+            InternalNode internalNode = new InternalNode(tableNumber, pageNumber, parentPageNumber);
+            internalNode.readFromHardware(tableAccessFile, tableSchema);
+            this.addPageToBuffer(internalNode);
+        }
+        tableAccessFile.close();
     }
 
     private void readPageHardware(int tableNumber, int pageNumber) throws Exception {
@@ -601,6 +626,28 @@ public class StorageManager implements StorageManagerInterface {
         Page page = new Page(numRecords, tableNumber, pageNum);
         page.readFromHardware(tableAccessFile, tableSchema);
         this.addPageToBuffer(page);
+        tableAccessFile.close();
+    }
+
+    private void writeNodePageHardware(BufferPage page) throws Exception {
+        Catalog catalog = Catalog.getCatalog();
+        int nodeSize = catalog.getSchema(page.getTableNumber()).computeSizeOfNode(catalog);
+        TableSchema tableSchema = catalog.getSchema(page.getTableNumber());
+        String filePath = this.getIndexingPath(page.getTableNumber());
+        File indexFile = new File(filePath);
+        RandomAccessFile tableAccessFile = new RandomAccessFile(indexFile, "rw");
+        tableAccessFile.writeInt(tableSchema.getNumIndexPages());
+        int nodeIndex = page.getPageNumber() - 1;
+
+        tableAccessFile.seek(tableAccessFile.getFilePointer() + (nodeSize * nodeIndex));
+
+        Random random = new Random();
+        byte[] buffer = new byte[nodeSize];
+        random.nextBytes(buffer);
+        tableAccessFile.write(buffer, 0, nodeSize);
+        tableAccessFile.seek(tableAccessFile.getFilePointer() - nodeSize);
+
+        page.writeToHardware(tableAccessFile);
         tableAccessFile.close();
     }
 
@@ -627,12 +674,14 @@ public class StorageManager implements StorageManagerInterface {
         tableAccessFile.close();
     }
 
-    private void addPageToBuffer(BufferPage page) throws Exception {
+    public void addPageToBuffer(BufferPage page) throws Exception {
         if (this.buffer.size() == this.bufferSize) {
             BufferPage lruPage = this.buffer.poll(); // assuming the first Page in the buffer is LRU
             if (lruPage.isChanged()) {
                 if (lruPage instanceof Page) {
                     this.writePageHardware(lruPage);
+                } else if (lruPage instanceof Node) {
+                    this.writeNodePageHardware(lruPage);
                 } else {
                     MessagePrinter.printMessage(MessageType.ERROR, "Unknown BufferPage type: addPageToBuffer");
                 }
@@ -644,7 +693,13 @@ public class StorageManager implements StorageManagerInterface {
     public void writeAll() throws Exception {
         for (BufferPage page : buffer) {
             if (page.isChanged()) {
-                writePageHardware(page);
+                if (page instanceof Page) {
+                    writePageHardware(page);
+                }  else if (page instanceof Node) {
+                    writeNodePageHardware(page);
+                } else {
+                    MessagePrinter.printMessage(MessageType.ERROR, "Unknown BufferPage type: addPageToBuffer");
+                }
             }
         }
         this.buffer.removeAll(buffer);
