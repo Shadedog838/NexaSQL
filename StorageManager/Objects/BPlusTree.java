@@ -10,13 +10,12 @@ public class BPlusTree {
   private TableSchema tableSchema;
   private int tableNumber;
 
-  public BPlusTree(TableSchema tableSchema) throws Exception {
+  public BPlusTree(TableSchema tableSchema, Node root) throws Exception {
     this.tableSchema = tableSchema;
     this.tableNumber = tableSchema.getTableNumber();
     this.N = tableSchema.computeN(Catalog.getCatalog());
-    this.root = tableSchema.getRootNumber() != -1 ? StorageManager.getStorageManager().getNodePage(tableNumber, tableSchema.getRootNumber()) : new LeafNode(tableNumber, 1, -1);;
+    this.root = root;
   }
-
 
   public int getMaxKeysPerNode() {
     return N - 1;
@@ -33,6 +32,9 @@ public class BPlusTree {
     while (!currentNode.isLeaf()) {
       InternalNode internalNode = (InternalNode) currentNode;
       int pos = internalNode.findInsertPosition(primaryKey);
+      if (((Comparable) primaryKey).compareTo(internalNode.getPrimaryKeys().get(pos)) > 0) {
+        ++pos; // got to the right child
+      }
       int childPageNumber = internalNode.getChildrenPointers().get(pos);
       currentNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
     }
@@ -44,7 +46,11 @@ public class BPlusTree {
        MessagePrinter.printMessage(MessageType.ERROR, String.format("primaryKey: (%d) already exist", primaryKey.toString()));
     }
 
-    return pos - 1 < 0 ? leafNode.getBuckets().get(0) : leafNode.getBuckets().get(pos - 1);
+    if (pos - 1 < 0) {
+      return leafNode.getBuckets().get(0);
+    } else {
+      return leafNode.getBuckets().get(pos - 1);
+    }
   }
 
   @SuppressWarnings({ "rawtypes", "unchecked" })
@@ -68,13 +74,13 @@ public class BPlusTree {
     return null;
   }
 
-  public void insert(Object primaryKey, Bucket value) throws Exception {
+  public void insert(Object primaryKey, Object value) throws Exception {
     root.insertKey(primaryKey, value, this);
   }
 
-  public void update(Object oldPrimaryKey, Object newPrimaryKey) throws Exception {
+  public void update(Object oldPrimaryKey, Object newPrimaryKey, Object newValue) throws Exception {
     delete(oldPrimaryKey);
-    insert(newPrimaryKey, null);
+    insert(newPrimaryKey, newValue);
   }
 
   public void delete(Object primaryKey) throws Exception {

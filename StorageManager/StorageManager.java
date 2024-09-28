@@ -80,17 +80,17 @@ public class StorageManager implements StorageManagerInterface {
             Record lastRecordInCurrPage = page.getRecords().get(page.getRecords().size() - 1);
             if (record.compareTo(lastRecordInCurrPage, primaryKeyIndex) < 0) {
                 page.getRecords().clear();
-                page.addNewRecord(record);
-                newPage.addNewRecord(lastRecordInCurrPage);
+                page.addNewRecord(record, false);
+                newPage.addNewRecord(lastRecordInCurrPage, true);
             } else {
-                newPage.addNewRecord(record);
+                newPage.addNewRecord(record, false);
             }
         } else {
             splitIndex = (int) Math.floor(page.getRecords().size() / 2);
 
             // Move half of the records to the new page
             for (Record copyRecord : page.getRecords().subList(splitIndex, page.getRecords().size())) {
-                if (!newPage.addNewRecord(copyRecord)) {
+                if (!newPage.addNewRecord(copyRecord, true)) {
                     List<Page> temp = pageSplit(newPage, copyRecord, tableSchema, primaryKeyIndex);
                     results.remove(newPage);
                     results.addAll(temp);
@@ -103,13 +103,13 @@ public class StorageManager implements StorageManagerInterface {
             Record lastRecordInCurrPage = page.getRecords().get(page.getRecords().size() - 1);
             if (record.compareTo(lastRecordInCurrPage, primaryKeyIndex) < 0) {
                 // record is less than lastRecord in page
-                if (!page.addNewRecord(record)) {
+                if (!page.addNewRecord(record, false)) {
                     List<Page> temp = pageSplit(page, record, tableSchema, primaryKeyIndex);
                     results.remove(page);
                     results.addAll(temp);
                 }
             } else {
-                if (!newPage.addNewRecord(record)) {
+                if (!newPage.addNewRecord(record, false)) {
                     List<Page> temp = pageSplit(newPage, record, tableSchema, primaryKeyIndex);
                     results.remove(newPage);
                     results.addAll(temp);
@@ -152,30 +152,20 @@ public class StorageManager implements StorageManagerInterface {
         return dbLoc + "/indexing/" + Integer.toString(tableNumber);
     }
 
-    /**
-     * This method retrieves the page number that contains the specified primary key.
-     * It first looks through the provided list of pages, and if not found, it falls back
-     * to checking all pages in the table's schema.
-     *
-     * @param tableNumber      The number representing the table to search.
-     * @param primaryKey       The primary key to search for within the pages.
-     * @param pagesToLookThrough The list of specific pages to search through, or null if all pages should be checked.
-     * @return                 The page number that contains the primary key or -1 if not found.
-     * @throws Exception       If an error occurs during the search process.
-     */
-    public int getPrimaryKeyPageNumber(int tableNumber, Object primaryKey, List<Page> pagesToLookThrough) throws Exception {
+    public Bucket getPrimaryKeyBucket(int tableNumber, Object primaryKey, List<Page> pagesToLookThrough) throws Exception {
         Catalog catalog = Catalog.getCatalog();
         TableSchema schema = catalog.getSchema(tableNumber);
         int primaryKeyIndex = schema.getPrimaryIndex();
         List<Integer> pageOrder = schema.getPageOrder();
+        Page foundPage = null;
         if (pagesToLookThrough != null) {
             for (Page page : pagesToLookThrough) {
                 Record lastRecord = page.getRecords().get(page.getRecords().size() - 1);
                 int comparison = lastRecord.compareTo(primaryKey, primaryKeyIndex);
 
                 if (comparison == 0 || comparison > 0) {
-                    // found the record, return it
-                    return page.getPageNumber();
+                    foundPage = page;
+                    break;
                 }
             }
         } else {
@@ -186,13 +176,19 @@ public class StorageManager implements StorageManagerInterface {
                 int comparison = lastRecord.compareTo(primaryKey, primaryKeyIndex);
 
                 if (comparison == 0 || comparison > 0) {
-                    // found the record, return it
-                    return pageNumber;
+                    foundPage = page;
                 }
             }
         }
 
-        return -1;
+        List<Record> records = foundPage.getRecords();
+        for (Record i : records) {
+            if (i.compareTo(primaryKey, primaryKeyIndex) == 0) {
+                return new Bucket(foundPage.getPageNumber(), records.indexOf(i));
+            }
+        }
+
+        return null;
     }
 
     public Record getRecord(int tableNumber, Object primaryKey) throws Exception {
@@ -289,7 +285,7 @@ public class StorageManager implements StorageManagerInterface {
             // create a new page and insert the new record into it
             Page _new = new Page(0, tableNumber, 1);
             tableSchema.addPageNumber(_new.getPageNumber());
-            _new.addNewRecord(record);
+            _new.addNewRecord(record, false);
             tableSchema.incrementNumRecords();
             // then add the page to the buffer
             this.addPageToBuffer(_new);
@@ -298,25 +294,51 @@ public class StorageManager implements StorageManagerInterface {
                 if (!indexFile.exists()) {
                     indexFile.createNewFile();
 
-                    BPlusTree bPlusTree = new BPlusTree(tableSchema);
-                    bPlusTree.insert(bPlusTree, new Bucket(1, 0));
+                    LeafNode root = new LeafNode(tableNumber, 1, -1);
+                    tableSchema.incrementNumIndexPages();
+                    BPlusTree bPlusTree = new BPlusTree(tableSchema, root);
+                    Object primaryKey = record.getValues().get(primaryKeyIndex);
+                    this.addPageToBuffer(root);
+                    tableSchema.setRoot(1);
+                    bPlusTree.insert(primaryKey, new Bucket(1, 0));
                 }
             }
         } else {
             if (catalog.isIndexingOn()) {
                 Object primaryKey = record.getValues().get(primaryKeyIndex);
-                BPlusTree bPlusTree = new BPlusTree(tableSchema);
-                Bucket bucket = bPlusTree.canInsert(primaryKey);
-                Page page = this.getPage(tableNumber, bucket.getPageNumber());
-                if (!page.addNewRecord(record, bucket.getIndex() + 1)) {
-                    this.pageSplit(page, record, tableSchema, primaryKeyIndex);
+                Node root = this.getNodePage(tableNumber, tableSchema.getRootNumber());
+                BPlusTree bPlusTree = new BPlusTree(tableSchema, root);
+                Bucket bucketPrior = bPlusTree.canInsert(primaryKey);
+                Page page = this.getPage(tableNumber, bucketPrior.getPageNumber());
+                Bucket newBucket;
+                if (bucketPrior.getIndex() == 0) {
+                    // This means the new record can go before or after the first record in the page
+                    if (!page.addNewRecord(record, false)) {
+                        List<Page> pages = this.pageSplit(page, record, tableSchema, primaryKeyIndex);
+                        List<Page> checkPages = new ArrayList<>(Arrays.asList(page));
+                        checkPages.addAll(pages);
+                        newBucket = this.getPrimaryKeyBucket(tableNumber, primaryKey, checkPages);
+                    } else {
+                        List<Page> pages = Arrays.asList(page);
+                        newBucket = this.getPrimaryKeyBucket(tableNumber, primaryKey, pages);
+                    }
+                } else {
+                    if (!page.addNewRecord(record, bucketPrior.getIndex() + 1)) {
+                        List<Page> pages = this.pageSplit(page, record, tableSchema, primaryKeyIndex);
+                        List<Page> checkPages = new ArrayList<>(Arrays.asList(page));
+                        checkPages.addAll(pages);
+                        newBucket = this.getPrimaryKeyBucket(tableNumber, primaryKey, checkPages);
+                    } else {
+                        newBucket = new Bucket(page.getPageNumber(), bucketPrior.getIndex() + 1);
+                    }
                 }
                 tableSchema.incrementNumRecords();
+                bPlusTree.insert(primaryKey, newBucket);
             } else {
                 for (Integer pageNumber : tableSchema.getPageOrder()) {
                     Page page = this.getPage(tableNumber, pageNumber);
                     if (page.getNumRecords() == 0) {
-                        if (!page.addNewRecord(record)) {
+                        if (!page.addNewRecord(record, false)) {
                             // page was full
                             this.pageSplit(page, record, tableSchema, primaryKeyIndex);
                         }
@@ -328,7 +350,7 @@ public class StorageManager implements StorageManagerInterface {
                     if ((record.compareTo(lastRecordInPage, primaryKeyIndex) < 0) ||
                         (pageNumber == tableSchema.getPageOrder().get(tableSchema.getPageOrder().size() - 1))) {
                         // record is less than lastRecordPage
-                        if (!page.addNewRecord(record)) {
+                        if (!page.addNewRecord(record, false)) {
                             // page was full
                             this.pageSplit(page, record, tableSchema, primaryKeyIndex);
                         }
@@ -435,7 +457,8 @@ public class StorageManager implements StorageManagerInterface {
         Pair<Page, Record> deletedPair = null;
 
         if (catalog.isIndexingOn()) {
-            BPlusTree bPlusTree = new BPlusTree(schema);
+            Node root = this.getNodePage(tableNumber, schema.getRootNumber());
+            BPlusTree bPlusTree = new BPlusTree(schema, root);
             Bucket bucket = bPlusTree.search(primaryKey);
             if (bucket == null) {
                 MessagePrinter.printMessage(MessageType.ERROR,
@@ -613,8 +636,8 @@ public class StorageManager implements StorageManagerInterface {
         }
 
         // If not in buffer, read the node from hardware
-        readNodePageHardware(tableNumber, pageNumber);  // This method is already implemented
-        return (Node) getLastPageInBuffer(this.buffer);  // Assume this retrieves the last added page from the buffer
+        readNodePageHardware(tableNumber, pageNumber);
+        return (Node) getLastPageInBuffer(this.buffer);
     }
 
 

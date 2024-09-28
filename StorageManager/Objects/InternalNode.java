@@ -19,6 +19,7 @@ public class InternalNode extends Node {
     return childrenPointers;
   }
 
+  @SuppressWarnings({ "rawtypes", "unchecked" })
   @Override
   public void insertKey(Object primaryKey, Object value, BPlusTree tree) throws Exception {
     int pos = findInsertPosition(primaryKey);
@@ -26,7 +27,12 @@ public class InternalNode extends Node {
     if (value instanceof Integer) {
       primaryKeys.add(pos, primaryKey);
       this.setChanged();
+      this.setPriority();
       return;
+    }
+
+    if (((Comparable) primaryKey).compareTo(this.getPrimaryKeys().get(pos)) > 0) {
+      ++pos; // got to the right child
     }
 
     int childPageNumber = childrenPointers.get(pos);
@@ -39,6 +45,7 @@ public class InternalNode extends Node {
       splitChild(pos, childNode, tree);
     }
     this.setChanged();
+    this.setPriority();
   }
 
   private void splitChild(int index, Node child, BPlusTree tree) throws Exception {
@@ -84,6 +91,9 @@ public class InternalNode extends Node {
         handleUnderflow(tree);
       }
     } else {
+      if (((Comparable) primaryKey).compareTo(this.getPrimaryKeys().get(pos)) > 0 || ((Comparable) primaryKey).compareTo(this.getPrimaryKeys().get(pos)) == 0) {
+        ++pos; // got to the right child
+      }
       int childPageNumber = childrenPointers.get(pos);
       Node childNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
       childNode.deleteKey(primaryKey, tree);
@@ -93,6 +103,7 @@ public class InternalNode extends Node {
       }
     }
     this.setChanged();
+    this.setPriority();
   }
 
   private void handleUnderflow(BPlusTree tree) throws Exception {

@@ -50,6 +50,7 @@ public class LeafNode extends Node {
       splitLeaf(tree);
     }
     this.setChanged();
+    this.setPriority();
   }
 
   private void splitLeaf(BPlusTree tree) throws Exception {
@@ -95,6 +96,7 @@ public class LeafNode extends Node {
       handleUnderflow(tree);
     }
     this.setChanged();
+    this.setPriority();
   }
 
 

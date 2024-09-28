@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+import StorageManager.StorageManager;
 import StorageManager.TableSchema;
 import StorageManager.Objects.MessagePrinter.MessageType;
 
@@ -61,7 +62,7 @@ public class Page extends BufferPage {
      *                  false: page is full
      * @throws Exception
      */
-    public boolean addNewRecord(Record record) throws Exception {
+    public boolean addNewRecord(Record record, boolean includeInsertedRecordInBucketUpdate) throws Exception {
         Catalog catalog = Catalog.getCatalog();
         // check if record can fit in this page.
         if ((catalog.getPageSize() - this.computeSize()) < record.computeSize()) {
@@ -78,6 +79,12 @@ public class Page extends BufferPage {
             this.records.sort(comparator);
 
             this.setNumRecords();
+
+            if (includeInsertedRecordInBucketUpdate) {
+                updateBplusTreeBuckets(this.records.indexOf(record));
+            } else {
+                updateBplusTreeBuckets(this.records.indexOf(record) + 1);
+            }
             this.changed = true;
             this.setPriority();
             return true;
@@ -100,6 +107,7 @@ public class Page extends BufferPage {
         } else {
             this.records.add(index, record);
             this.setNumRecords();
+            updateBplusTreeBuckets(index + 1);
             this.changed = true;
             this.setPriority();
             return true;
@@ -112,34 +120,17 @@ public class Page extends BufferPage {
      * @param index     The index to delete the record at
      *
      * @return          The deleted record
+     * @throws Exception
      */
-    public Record deleteRecord(int index) {
+    public Record deleteRecord(int index) throws Exception {
         Record removed = this.records.remove(index);
         this.changed = true;
         this.setPriority();
         this.setNumRecords();
-        //System.out.println("Deleted record pk: " + removed.getValues().get(0));
+        updateBplusTreeBuckets(index);
         return removed;
     }
 
-    /**
-     * Replaces a record at a given index
-     *
-     * @param index     The index to replace the record at
-     * @param record    The record to replace with
-     *
-     * @return          boolean, indicating success status
-     */
-    public boolean updateRecord(int index, Record record) {
-        if (this.getRecords().remove(index).equals(null)) {
-            return false;
-        } else {
-            this.getRecords().add(index, record);
-            this.changed = true;
-            this.setPriority();
-            return true;
-        }
-    }
 
     /**
      * returns the number of bytes of space is left in this page
@@ -171,6 +162,21 @@ public class Page extends BufferPage {
             Record record = new Record(new ArrayList<>());
             record.readFromHardware(tableAccessFile, tableSchema);
             this.records.add(record);
+        }
+    }
+
+
+    private void updateBplusTreeBuckets(int startingRecordIndex) throws Exception {
+        TableSchema tableSchema = Catalog.getCatalog().getSchema(tableNumber);
+        int primaryIndex = tableSchema.getPrimaryIndex();
+        for (int i=startingRecordIndex; i < this.records.size(); ++i) {
+            Record record = this.records.get(i);
+            Object primaryKey = record.getValues().get(primaryIndex);
+            Bucket bucket = new Bucket(this.pageNumber, this.records.indexOf(record));
+            Node root = StorageManager.getStorageManager().getNodePage(this.tableNumber, tableSchema.getRootNumber());
+            BPlusTree bPlusTree = new BPlusTree(tableSchema, root);
+
+            bPlusTree.update(primaryKey, primaryKey, bucket);
         }
     }
 
