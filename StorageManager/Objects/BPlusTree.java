@@ -25,6 +25,32 @@ public class BPlusTree {
     return (N - 1) / 2;
   }
 
+  public int getMinKeysForNode(Node node) {
+    if (node == root) {
+      return 1;
+    }
+    return getMinKeysPerNode();
+  }
+
+  public int getMinKeysForLeafNode(Node node) {
+    if (node == root) {
+      return 1;
+    }
+    return (N - 1) / 2;
+  }
+
+  public int getMaxChildrenPerNode() {
+      return N;
+  }
+
+  public Node getRoot() {
+    return this.root;
+  }
+
+  public void setRoot(Node newRoot) {
+    this.root = newRoot;
+  }
+
   @SuppressWarnings({ "rawtypes", "unchecked" })
   public Bucket canInsert(Object primaryKey) throws Exception {
     Node currentNode = root;
@@ -32,9 +58,6 @@ public class BPlusTree {
     while (!currentNode.isLeaf()) {
       InternalNode internalNode = (InternalNode) currentNode;
       int pos = internalNode.findInsertPosition(primaryKey);
-      if (((Comparable) primaryKey).compareTo(internalNode.getPrimaryKeys().get(pos)) > 0) {
-        ++pos; // got to the right child
-      }
       int childPageNumber = internalNode.getChildrenPointers().get(pos);
       currentNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
     }
@@ -94,6 +117,7 @@ public class BPlusTree {
       newRoot.setChanged();
       StorageManager.getStorageManager().addPageToBuffer(newRoot);
       newRoot.primaryKeys.add(middleKey);
+      ++newRoot.numPrimaryKeys;
       newRoot.getChildrenPointers().add(leftNode.getPageNumber());
       newRoot.getChildrenPointers().add(rightNode.getPageNumber());
       leftNode.setParentPageNumber(newRoot.getPageNumber());
@@ -103,6 +127,11 @@ public class BPlusTree {
     } else {
       InternalNode parent = (InternalNode) StorageManager.getStorageManager().getNodePage(tableNumber, leftNode.getParentPageNumber());
       parent.insertKey(middleKey, rightNode.getParentPageNumber(), this);
+      if (parent.getPrimaryKeys().indexOf(middleKey) == parent.numPrimaryKeys - 1) {
+        parent.getChildrenPointers().add(rightNode.getPageNumber());
+      } else {
+        parent.getChildrenPointers().add(parent.getPrimaryKeys().indexOf(middleKey) + 1, rightNode.getPageNumber());
+      }
     }
   }
 

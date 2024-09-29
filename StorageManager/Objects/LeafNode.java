@@ -92,7 +92,7 @@ public class LeafNode extends Node {
       --numPrimaryKeys;
     }
 
-    if (numPrimaryKeys < tree.getMinKeysPerNode()) {
+    if (numPrimaryKeys < tree.getMinKeysForLeafNode(this)) {
       handleUnderflow(tree);
     }
     this.setChanged();
@@ -104,9 +104,9 @@ public class LeafNode extends Node {
     LeafNode leftSibling = tree.getLeftSibling(this);
     LeafNode rightSibling = tree.getRightSibling(this);
 
-    if (leftSibling != null && leftSibling.numPrimaryKeys > tree.getMinKeysPerNode()) {
+    if (leftSibling != null && leftSibling.numPrimaryKeys > tree.getMinKeysForLeafNode(leftSibling)) {
       redistributionFromLeft(leftSibling);
-    } else if (rightSibling != null && rightSibling.numPrimaryKeys > tree.getMinKeysPerNode()) {
+    } else if (rightSibling != null && rightSibling.numPrimaryKeys > tree.getMinKeysForLeafNode(rightSibling)) {
       redistributionFromRight(rightSibling);
     } else if (leftSibling != null) {
       mergeWithLeftSibling(leftSibling, tree);
