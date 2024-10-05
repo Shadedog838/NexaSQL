@@ -122,7 +122,7 @@ public class LeafNode extends Node {
     numPrimaryKeys++;
   }
 
-  private void redistributionFromRight(LeafNode rightSibling) {
+  private void redistributionFromRight(LeafNode rightSibling) throws Exception {
     primaryKeys.add(numPrimaryKeys, rightSibling.primaryKeys.remove(0));
     buckets.add(numPrimaryKeys, rightSibling.buckets.remove(0));
     rightSibling.numPrimaryKeys--;

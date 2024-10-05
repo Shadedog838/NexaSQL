@@ -83,8 +83,14 @@ public class BPlusTree {
     while (!currentNode.isLeaf()) {
       InternalNode internalNode = (InternalNode) currentNode;
       int pos = internalNode.findInsertPosition(primaryKey);
-      int childPageNumber = internalNode.getChildrenPointers().get(pos);
-      currentNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
+      if (pos < internalNode.numPrimaryKeys && ((Comparable) internalNode.getPrimaryKeys().get(pos)).compareTo(primaryKey) == 0) {
+        // go to the right if key is equal;
+        int childPageNumber = internalNode.getChildrenPointers().get(pos + 1);
+        currentNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
+      } else {
+        int childPageNumber = internalNode.getChildrenPointers().get(pos);
+        currentNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
+      }
     }
 
     LeafNode leafNode = (LeafNode) currentNode;
@@ -140,7 +146,10 @@ public class BPlusTree {
       root = null;
     } else {
       InternalNode parent = (InternalNode) StorageManager.getStorageManager().getNodePage(tableNumber, node.getParentPageNumber());
-      parent.deleteKey(node.getPrimaryKeys().get(0), this);
+      int pointerIndex = parent.getChildrenPointers().indexOf(node.getPageNumber());
+      parent.getChildrenPointers().remove(pointerIndex);
+      node.getPrimaryKeys().clear(); // remove all keys to indicate dead node
+      node.numPrimaryKeys = 0;
     }
   }
 

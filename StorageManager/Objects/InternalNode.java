@@ -27,7 +27,7 @@ public class InternalNode extends Node {
       primaryKeys.add(pos, primaryKey);
       ++numPrimaryKeys;
 
-      if (numPrimaryKeys > tree.getMaxChildrenPerNode()) {
+      if (numPrimaryKeys > tree.getMaxKeysPerNode()) {
         splitInternalNode(tree);
       }
       this.setChanged();
@@ -55,12 +55,18 @@ public class InternalNode extends Node {
     for (int i = midIndex + 1; i < numPrimaryKeys; i++) {
         newRightNode.primaryKeys.add(primaryKeys.get(i));
     }
-    newRightNode.childrenPointers.addAll(childrenPointers.subList(midIndex + 1, childrenPointers.size()));
+    newRightNode.childrenPointers.addAll(childrenPointers.subList(midIndex, childrenPointers.size()));
+
+    // update parent for new right node child pointers
+    for (int childPageNumber : newRightNode.getChildrenPointers()) {
+      Node childNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
+      childNode.setParentPageNumber(newRightNode.getPageNumber());
+    }
 
     newRightNode.numPrimaryKeys = newRightNode.primaryKeys.size();
 
-    primaryKeys = primaryKeys.subList(0, midIndex); // Retain only the left half
-    childrenPointers = childrenPointers.subList(0, midIndex + 1); // Include one extra child pointer
+    primaryKeys = primaryKeys.subList(0, midIndex + 1); // Retain only the left half
+    childrenPointers = childrenPointers.subList(0, midIndex);
     numPrimaryKeys = primaryKeys.size();
 
     // Promote the middle key to the parent
@@ -70,8 +76,10 @@ public class InternalNode extends Node {
         InternalNode newRoot = new InternalNode(tableNumber, Catalog.getCatalog().getSchema(tableNumber).getNumIndexPages() + 1, -1);
         Catalog.getCatalog().getSchema(tableNumber).incrementNumIndexPages();
         newRoot.setChanged();
-        StorageManager.getStorageManager().addPageToBuffer(newRightNode);
+        StorageManager.getStorageManager().addPageToBuffer(newRoot);
         newRoot.primaryKeys.add(middleKey);
+        primaryKeys.remove(middleKey);
+        --numPrimaryKeys;
         newRoot.numPrimaryKeys++;
         newRoot.childrenPointers.add(this.pageNumber);
         newRoot.childrenPointers.add(newRightNode.getPageNumber());
@@ -109,15 +117,28 @@ public class InternalNode extends Node {
 
       rightChild.deleteKey(primaryKey, tree);
 
-      Object successorKey = findSuccessor(rightChild, tree);
-
-      primaryKeys.set(pos, successorKey);
+      if (rightChild.numPrimaryKeys != 0) {
+        Object successorKey = findSuccessor(rightChild, tree);
+        primaryKeys.set(pos, successorKey);
+      } else {
+        this.getPrimaryKeys().remove(primaryKey);
+        numPrimaryKeys--;
+      }
     } else {
       int childPageNumber = childrenPointers.get(pos);
       Node childNode = StorageManager.getStorageManager().getNodePage(tableNumber, childPageNumber);
       childNode.deleteKey(primaryKey, tree);
-      Object successorKey = findSuccessor(childNode, tree);
-      primaryKeys.set(pos - 1, successorKey);
+      if (childNode.numPrimaryKeys - 1 < tree.getMinKeysForLeafNode(childNode) && pos < this.getChildrenPointers().size() && childNode.numPrimaryKeys != 0) {
+        // child was underfull
+        if (pos > 0) {
+          Object successorKey = findSuccessor(childNode, tree);
+          primaryKeys.set(pos - 1, successorKey);
+        } else {
+          LeafNode rightChildNode = tree.getRightSibling((LeafNode) childNode);
+          Object successorKey = findSuccessor(rightChildNode, tree);
+          primaryKeys.set(pos, successorKey);
+        }
+      }
     }
 
     if (numPrimaryKeys < tree.getMinKeysForNode(this)) {
