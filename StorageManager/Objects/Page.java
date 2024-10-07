@@ -79,11 +79,12 @@ public class Page extends BufferPage {
             this.records.sort(comparator);
 
             this.setNumRecords();
-
-            if (includeInsertedRecordInBucketUpdate) {
-                updateBplusTreeBuckets(this.records.indexOf(record));
-            } else {
-                updateBplusTreeBuckets(this.records.indexOf(record) + 1);
+            if (Catalog.getCatalog().isIndexingOn()) {
+                if (includeInsertedRecordInBucketUpdate) {
+                    updateBplusTreeBuckets(this.records.indexOf(record));
+                } else {
+                    updateBplusTreeBuckets(this.records.indexOf(record) + 1);
+                }
             }
             this.changed = true;
             this.setPriority();
@@ -107,7 +108,9 @@ public class Page extends BufferPage {
         } else {
             this.records.add(index, record);
             this.setNumRecords();
-            updateBplusTreeBuckets(index + 1);
+            if (Catalog.getCatalog().isIndexingOn()) {
+                updateBplusTreeBuckets(index + 1);
+            }
             this.changed = true;
             this.setPriority();
             return true;
@@ -127,7 +130,9 @@ public class Page extends BufferPage {
         this.changed = true;
         this.setPriority();
         this.setNumRecords();
-        updateBplusTreeBuckets(index);
+        if (Catalog.getCatalog().isIndexingOn()) {
+            updateBplusTreeBuckets(index);
+        }
         return removed;
     }
 
