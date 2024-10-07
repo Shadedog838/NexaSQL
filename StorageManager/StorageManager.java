@@ -466,8 +466,7 @@ public class StorageManager implements StorageManagerInterface {
                             primaryKey));
             }
             Page foundPage = this.getPage(tableNumber, bucket.getPageNumber());
-            List<Record> recordsInFound = foundPage.getRecords();
-            Record removed = recordsInFound.remove(bucket.getIndex());
+            Record removed = foundPage.deleteRecord(bucket.getIndex());
             deletedPair = new Pair<Page, Record>(foundPage, removed);
             bPlusTree.delete(primaryKey);
         } else {

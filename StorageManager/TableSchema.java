@@ -111,6 +111,10 @@ public class TableSchema implements SchemaInterface {
     this.indexRootNumber = rootNumber;
   }
 
+  public void setNumIndexPages(int num) {
+    this.numIndexPages = num;
+  }
+
   public int getRootNumber() {
     return this.indexRootNumber;
   }

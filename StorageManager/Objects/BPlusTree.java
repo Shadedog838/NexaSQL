@@ -43,6 +43,11 @@ public class BPlusTree {
       return N;
   }
 
+  public int getMinChildrenPerNode(Node node) {
+    if (node == root) return 2;
+    return (int) Math.ceil((double) N / 2);
+  }
+
   public Node getRoot() {
     return this.root;
   }
@@ -133,6 +138,14 @@ public class BPlusTree {
     } else {
       InternalNode parent = (InternalNode) StorageManager.getStorageManager().getNodePage(tableNumber, leftNode.getParentPageNumber());
       parent.insertKey(middleKey, rightNode.getParentPageNumber(), this);
+      if(!parent.getPrimaryKeys().contains(middleKey)) {
+        leftNode.setParentPageNumber(parent.getPageNumber());
+        parent.getChildrenPointers().add(leftNode.getPageNumber());
+        InternalNode rightSibling = this.getRightInternalSibling(parent);
+        rightSibling.getChildrenPointers().set(0, rightNode.getPageNumber());
+        rightNode.setParentPageNumber(rightSibling.getPageNumber());
+        return;
+      }
       if (parent.getPrimaryKeys().indexOf(middleKey) == parent.numPrimaryKeys - 1) {
         parent.getChildrenPointers().add(rightNode.getPageNumber());
       } else {
@@ -148,8 +161,27 @@ public class BPlusTree {
       InternalNode parent = (InternalNode) StorageManager.getStorageManager().getNodePage(tableNumber, node.getParentPageNumber());
       int pointerIndex = parent.getChildrenPointers().indexOf(node.getPageNumber());
       parent.getChildrenPointers().remove(pointerIndex);
+      if (pointerIndex == 0) {
+        parent.getPrimaryKeys().remove(pointerIndex);
+      } else {
+        parent.getPrimaryKeys().remove(pointerIndex - 1);
+      }
+      parent.numPrimaryKeys--;
       node.getPrimaryKeys().clear(); // remove all keys to indicate dead node
       node.numPrimaryKeys = 0;
+
+      if (parent.numPrimaryKeys == 0 && parent == this.getRoot()) {
+        if (!parent.getChildrenPointers().isEmpty()) {
+          // If there's only one child left, make it the new root
+          this.setRoot(StorageManager.getStorageManager().getNodePage(tableNumber, parent.getChildrenPointers().get(0)));
+          Catalog.getCatalog().getSchema(tableNumber).setRoot(StorageManager.getStorageManager().getNodePage(tableNumber, parent.getChildrenPointers().get(0)).pageNumber);
+          this.root.parentPageNumber = -1;
+        } else {
+          this.setRoot(null); // Empty tree
+          Catalog.getCatalog().getSchema(tableNumber).setRoot(1);
+          Catalog.getCatalog().getSchema(tableNumber).setNumIndexPages(0);
+        }
+      }
     }
   }
 
@@ -205,36 +237,5 @@ public class BPlusTree {
     return null;
   }
 
-  public void splitRoot(InternalNode rootNode) throws Exception {
-    int midIndex = rootNode.numPrimaryKeys / 2;
-    Object midKey = rootNode.primaryKeys.get(midIndex);
-
-
-    InternalNode newRoot = new InternalNode(tableNumber, tableSchema.getNumIndexPages() + 1, -1);
-    tableSchema.incrementNumIndexPages();
-    newRoot.setChanged();
-    StorageManager.getStorageManager().addPageToBuffer(newRoot);
-    InternalNode newRightNode = new InternalNode(tableNumber, tableSchema.getNumIndexPages() + 1, newRoot.getPageNumber());
-    tableSchema.incrementNumIndexPages();
-    newRightNode.setChanged();
-    StorageManager.getStorageManager().addPageToBuffer(newRightNode);
-
-    for (int i=midIndex + 1; i < rootNode.numPrimaryKeys; ++i) {
-      newRightNode.primaryKeys.add(rootNode.primaryKeys.get(midIndex));
-      newRightNode.getChildrenPointers().add(rootNode.getChildrenPointers().get(i));
-    }
-    newRightNode.numPrimaryKeys = newRightNode.primaryKeys.size();
-
-    rootNode.numPrimaryKeys = midIndex;
-
-    newRoot.primaryKeys.add(midKey);
-    newRoot.getChildrenPointers().add(rootNode.getPageNumber());
-    newRoot.getChildrenPointers().add(newRightNode.getPageNumber());
-    rootNode.setParentPageNumber(newRoot.getPageNumber());
-    newRightNode.setParentPageNumber(newRoot.getPageNumber());
-
-    this.root = newRoot;
-    tableSchema.setRoot(this.root.pageNumber);
-  }
 
 }

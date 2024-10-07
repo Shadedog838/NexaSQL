@@ -126,7 +126,7 @@ public class Page extends BufferPage {
         Record removed = this.records.remove(index);
         this.changed = true;
         this.setPriority();
-        this.setNumRecords();
+        numRecords--;
         updateBplusTreeBuckets(index);
         return removed;
     }

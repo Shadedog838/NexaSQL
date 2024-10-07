@@ -120,6 +120,7 @@ public class LeafNode extends Node {
     buckets.add(0, leftSibling.buckets.remove(leftSibling.numPrimaryKeys - 1));
     leftSibling.numPrimaryKeys--;
     numPrimaryKeys++;
+    leftSibling.setChanged();
   }
 
   private void redistributionFromRight(LeafNode rightSibling) throws Exception {
@@ -127,6 +128,7 @@ public class LeafNode extends Node {
     buckets.add(numPrimaryKeys, rightSibling.buckets.remove(0));
     rightSibling.numPrimaryKeys--;
     numPrimaryKeys++;
+    rightSibling.setChanged();
   }
 
   private void mergeWithLeftSibling(LeafNode leftSibling, BPlusTree tree) throws Exception {
@@ -136,6 +138,7 @@ public class LeafNode extends Node {
     }
     leftSibling.numPrimaryKeys += numPrimaryKeys;
     leftSibling.setNextLeafPageNumber(this.nextLeafPageNumber);
+    leftSibling.setChanged();
     tree.deleteInParent(this);
   }
 
@@ -146,6 +149,7 @@ public class LeafNode extends Node {
     }
     numPrimaryKeys += rightSibling.numPrimaryKeys;
     this.setNextLeafPageNumber(rightSibling.getNextLeafPageNumber());
+    this.setChanged();
     tree.deleteInParent(rightSibling);
   }
 
