@@ -211,17 +211,27 @@ public class InternalNode extends Node {
     leftSibling.setChanged();
   }
 
-  private void redistributeFromRight(InternalNode rightSibling) {
+  private void redistributeFromRight(InternalNode rightSibling) throws Exception {
     Object borrowedKey = rightSibling.primaryKeys.remove(0);
-    primaryKeys.add(numPrimaryKeys, borrowedKey);
 
-    // Borrow the corresponding child pointer from the right sibling
+    InternalNode parent = (InternalNode) StorageManager.getStorageManager().getNodePage(tableNumber, this.getParentPageNumber());
+    Object keyBeingReplaced = parent.getPrimaryKeys().get(parent.getChildrenPointers().indexOf(this.getPageNumber())); // Get the key that separates this node from the right sibling
+    parent.getPrimaryKeys().set(parent.getChildrenPointers().indexOf(this.getPageNumber()), borrowedKey);
+
+    // Bring the parent's key down to the current node
+    this.getPrimaryKeys().add(keyBeingReplaced);
+
     int borrowedPointer = rightSibling.getChildrenPointers().remove(0);
-    childrenPointers.add(numPrimaryKeys + 1, borrowedPointer);
+    childrenPointers.add(borrowedPointer);
+
+    Node node = StorageManager.getStorageManager().getNodePage(tableNumber, borrowedPointer);
+    node.setParentPageNumber(this.getPageNumber());
 
     rightSibling.numPrimaryKeys--;
     numPrimaryKeys++;
+
     rightSibling.setChanged();
+    this.setChanged();
   }
 
   private void mergeWithLeftSibling(InternalNode leftSibling, BPlusTree tree) throws Exception {

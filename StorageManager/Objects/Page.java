@@ -126,7 +126,7 @@ public class Page extends BufferPage {
         Record removed = this.records.remove(index);
         this.changed = true;
         this.setPriority();
-        numRecords--;
+        this.setNumRecords();
         updateBplusTreeBuckets(index);
         return removed;
     }
@@ -166,7 +166,7 @@ public class Page extends BufferPage {
     }
 
 
-    private void updateBplusTreeBuckets(int startingRecordIndex) throws Exception {
+    public void updateBplusTreeBuckets(int startingRecordIndex) throws Exception {
         TableSchema tableSchema = Catalog.getCatalog().getSchema(tableNumber);
         int primaryIndex = tableSchema.getPrimaryIndex();
         for (int i=startingRecordIndex; i < this.records.size(); ++i) {
